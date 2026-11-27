@@ -1,0 +1,7 @@
+.git/
+.data/
+.air/
+.air.toml
+app/local-recipes/node_modules/
+app/local-recipes/build/
+*.md

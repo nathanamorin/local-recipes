@@ -1,0 +1,235 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: local-recipes
+---
+# Single shared PostgreSQL database for all users, managed by the
+# CloudNativePG operator (same pattern as local-podcasts' "database"
+# Cluster) - every table is scoped by a user_id column (see
+# internal/recipes/models.go), so unlike finance-tracker's per-user
+# encrypted SQLite design, there's exactly one database/instance here
+# regardless of how many users log in.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: database
+  namespace: local-recipes
+spec:
+  instances: 1
+  resources:
+    requests:
+      cpu: "1"
+      memory: 512Mi
+  storage:
+    size: 10Gi
+    storageClass: mayastor-fast-2-replicas-v2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-recipes
+  namespace: local-recipes
+  labels:
+    app: local-recipes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: local-recipes
+  template:
+    metadata:
+      labels:
+        app: local-recipes
+        name: local-recipes
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: local-recipes
+          # Check packages in github for latest version
+          image: ghcr.io/nathanamorin/local-recipes:<latest release tag here>
+          env:
+            # CNPG's `uri` secret key has no sslmode param; the in-cluster
+            # connection isn't TLS-verified (self-signed CNPG server
+            # cert), so sslmode=disable is appended explicitly. Variable
+            # expansion ($(DB_DSN)) requires DB_DSN to be defined earlier
+            # in this list (same pattern as local-podcasts).
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: database-app
+                  key: uri
+            - name: LOCAL_RECIPES_DB_DSN
+              value: "$(DB_DSN)?sslmode=disable"
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /me
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+---
+# The MCP server runs as its own Deployment/Service - it's a separate
+# transport/entrypoint onto the same database (see cmd/mcpserver), kept
+# independently scalable/restartable from the main web app, and reachable
+# at its own gated hostname so an LLM client's MCP connection goes
+# through the same Pocket ID identity gating as the web UI (see
+# k8s-deployment/deployments/networking/pocket-id-sso.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-recipes-mcpserver
+  namespace: local-recipes
+  labels:
+    app: local-recipes-mcpserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: local-recipes-mcpserver
+  template:
+    metadata:
+      labels:
+        app: local-recipes-mcpserver
+        name: local-recipes-mcpserver
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: local-recipes-mcpserver
+          image: ghcr.io/nathanamorin/local-recipes:<latest release tag here>
+          command: ["/app/local-recipes-mcpserver"]
+          env:
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: database-app
+                  key: uri
+            - name: LOCAL_RECIPES_MCP_DB_DSN
+              value: "$(DB_DSN)?sslmode=disable"
+          ports:
+            - name: http
+              containerPort: 8090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: local-recipes
+  namespace: local-recipes
+  # The ServiceMonitor's spec.selector.matchLabels matches against this
+  # Service's metadata.labels (not spec.selector) - without this label the
+  # ServiceMonitor is discovered but the scrape target is relabel-dropped,
+  # so the metric never reaches Prometheus/Mimir.
+  labels:
+    app: local-recipes
+spec:
+  selector:
+    app: local-recipes
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: local-recipes-mcpserver
+  namespace: local-recipes
+  labels:
+    app: local-recipes-mcpserver
+spec:
+  selector:
+    app: local-recipes-mcpserver
+  ports:
+    - port: 8090
+      targetPort: 8090
+      name: http
+---
+# Example ingress for the web app - will likely differ per environment.
+# Identity for this host comes from the Istio ext_authz AuthorizationPolicy
+# (pocket-id-sso-internal in k8s-deployment/deployments/networking/
+# pocket-id-sso.yaml) injecting X-Auth-Request-User, not from anything
+# configured here.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: local-recipes
+  namespace: local-recipes
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "recipes.internal.morinapps.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: local-recipes
+                port:
+                  number: 8080
+---
+# Example ingress for the MCP server - a separate host so an MCP client's
+# base URL is distinct from the web app's, while still sitting behind the
+# same Pocket ID gating.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: local-recipes-mcpserver
+  namespace: local-recipes
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "recipes-mcp.internal.morinapps.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: local-recipes-mcpserver
+                port:
+                  number: 8090

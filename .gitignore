@@ -1,0 +1,7 @@
+.idea/
+.data/
+.DS_Store
+.air/
+app/local-recipes/node_modules/
+app/local-recipes/build/
+static/
