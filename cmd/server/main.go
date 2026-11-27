@@ -61,6 +61,14 @@ func main() {
 	h := handlers.New(db)
 	h.Register(e)
 
+	// Unauthenticated liveness/readiness target for the k8s Deployment's
+	// probes - /me (and everything else under handlers.Register) requires
+	// X-Auth-Request-User and would otherwise always 401 without a
+	// logged-in identity, permanently failing readiness.
+	e.GET("/healthz", func(c echo.Context) error {
+		return c.NoContent(http.StatusOK)
+	})
+
 	// Serve static files and fall back to index.html for SPA client-side routes.
 	e.GET("/*", func(c echo.Context) error {
 		p := filepath.Join(cfg.StaticDir, c.Param("*"))
