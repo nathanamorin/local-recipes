@@ -8,8 +8,12 @@
 // from the X-Auth-Request-User header Istio injects upstream of this app
 // (see internal/identity), which the browser never sees or needs to
 // handle directly.
+// All API routes live under /api (see handlers.APIPrefix) so they never
+// collide with the SPA's own client-side routes.
+const API_PREFIX = '/api'
+
 async function request(path, options = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(API_PREFIX + path, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   })

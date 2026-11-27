@@ -73,7 +73,7 @@ spec:
               drop: ["ALL"]
           readinessProbe:
             httpGet:
-              path: /me
+              path: /healthz
               port: http
             periodSeconds: 10
           resources:

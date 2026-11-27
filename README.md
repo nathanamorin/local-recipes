@@ -58,7 +58,7 @@ identity has no safe bucket to write to.
 
 ### Meal scheduling
 
-`POST /schedule/generate?week_start=YYYY-MM-DD` (re)generates a week's
+`POST /api/schedule/generate?week_start=YYYY-MM-DD` (re)generates a week's
 plan from a user's `MealScheduleConfig` (meals per week, how many of
 those to actually cook vs. eat as leftovers, and how many days a cooked
 meal's leftovers last):
@@ -90,7 +90,7 @@ Without Istio injecting `X-Auth-Request-User` in front of you locally,
 set it yourself when calling the API directly, e.g.:
 
 ```
-curl -H "X-Auth-Request-User: dev-user" http://localhost:8080/recipes
+curl -H "X-Auth-Request-User: dev-user" http://localhost:8080/api/recipes
 ```
 
 ## Configuration
@@ -118,7 +118,7 @@ way it is for the web app. Five tools are available (see
 `cmd/mcpserver/tools.go`):
 
 - `import_recipe` - create a recipe (title, Markdown body, ingredients) -
-  the same code path `POST /recipes` uses, so imported recipes look
+  the same code path `POST /api/recipes` uses, so imported recipes look
   identical to manually-entered ones.
 - `log_ingredient_stock` - adjust or set an ingredient's on-hand quantity.
 - `list_ingredients` / `list_low_stock_ingredients` - check current stock.

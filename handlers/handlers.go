@@ -20,14 +20,22 @@ func New(db *gorm.DB) *Handler {
 	return &Handler{db: db}
 }
 
-// Register attaches all API routes to the given Echo instance, scoped to
-// a group so that userIDMiddleware (which fails closed - see its doc
-// comment) only guards the API itself, not the static SPA asset/fallback
-// route main.go registers directly on e - those must stay reachable
-// without an identity header, or the frontend's own JS/CSS bundle could
-// never load in the first place.
+// APIPrefix is the path prefix every API route is mounted under.
+const APIPrefix = "/api"
+
+// Register attaches all API routes to the given Echo instance under
+// APIPrefix, scoped to a group so that userIDMiddleware (which fails
+// closed - see its doc comment) only guards the API itself, not the static
+// SPA asset/fallback route main.go registers directly on e.
+//
+// The prefix must be non-empty: Echo's Group.Use registers catch-all
+// routes for the group's prefix and prefix+"/*" so group middleware runs
+// even on unmatched paths. With an empty prefix those catch-alls are "/"
+// and "/*", which shadow the SPA's root and make it 401/404. A shared
+// prefix also keeps API paths (/api/ingredients) from colliding with the
+// SPA's client-side routes (/ingredients) on refresh or deep link.
 func (h *Handler) Register(e *echo.Echo) {
-	g := e.Group("", userIDMiddleware)
+	g := e.Group(APIPrefix, userIDMiddleware)
 
 	g.GET("/me", h.GetCurrentUser)
 
