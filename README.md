@@ -49,10 +49,12 @@ See `internal/recipes/models.go` for the full schema:
 
 ### Identity: fails closed, no anonymous fallback
 
-Both `cmd/server` and `cmd/mcpserver` require the `X-Auth-Request-User`
-header (as injected by Istio's `ext_authz` AuthorizationPolicy gating
-Pocket ID SSO) on every API/tool call, returning `401`/a tool error if
-it's missing. There's no "anonymous user" fallback - every row in the
+`cmd/server` requires the `X-Auth-Request-User` header (as injected by
+Istio's `ext_authz` AuthorizationPolicy gating Pocket ID SSO) on every
+API call, returning `401` if it's missing. `cmd/mcpserver` instead
+verifies a Pocket ID OAuth access token itself and uses the token's `sub`
+as the user ID (the same claim oauth2-proxy forwards as
+`X-Auth-Request-User`) - see [MCP server](#mcp-server). There's no "anonymous user" fallback - every row in the
 single shared database is partitioned by this user ID, so a missing
 identity has no safe bucket to write to.
 
@@ -101,9 +103,15 @@ curl -H "X-Auth-Request-User: dev-user" http://localhost:8080/api/recipes
 | `LOCAL_RECIPES_ADDR` | `cmd/server` | `:8080` | Listen address |
 | `LOCAL_RECIPES_DB_MAX_OPEN_CONNS` | `cmd/server` | `20` | Postgres connection pool size |
 | `LOCAL_RECIPES_STATIC_DIR` | `cmd/server` | `static` | Directory the built frontend is served from |
+| `LOCAL_RECIPES_USER_INFO_URL` | `cmd/server` | *(unset)* | OIDC userinfo endpoint; when set, `GET /api/me` adds the user's name, username, email and picture (looked up with the forwarded `X-Auth-Request-Access-Token`) |
 | `LOCAL_RECIPES_MCP_DB_DSN` | `cmd/mcpserver` | *(required)* | PostgreSQL connection string |
 | `LOCAL_RECIPES_MCP_ADDR` | `cmd/mcpserver` | `:8090` | Listen address |
 | `LOCAL_RECIPES_MCP_DB_MAX_OPEN_CONNS` | `cmd/mcpserver` | `10` | Postgres connection pool size |
+| `LOCAL_RECIPES_MCP_AUTH_MODE` | `cmd/mcpserver` | `oidc` | `oidc` (verify bearer tokens) or `header` (trust `X-Auth-Request-User`; local dev only) |
+| `LOCAL_RECIPES_MCP_OIDC_ISSUER` | `cmd/mcpserver` | *(required in oidc mode)* | Authorization server issuer, e.g. `https://id.internal.morinapps.com` |
+| `LOCAL_RECIPES_MCP_OIDC_JWKS_URL` | `cmd/mcpserver` | `<issuer>/.well-known/jwks.json` | Token signing keys |
+| `LOCAL_RECIPES_MCP_RESOURCE_URL` | `cmd/mcpserver` | *(required in oidc mode)* | Public MCP endpoint URL; the required token audience |
+| `LOCAL_RECIPES_MCP_OAUTH_SCOPES` | `cmd/mcpserver` | `openid;profile;offline_access` | Scopes advertised to MCP clients |
 
 Both binaries connect to the same Postgres database and run
 `internal/recipes.AutoMigrate` at startup, so either can be the first to
@@ -111,10 +119,39 @@ touch a brand-new database.
 
 ## MCP server
 
-Point an MCP client (e.g. a chat assistant) at the MCP server's
-Streamable HTTP endpoint (`http://<host>:8090/mcp` in this build - see
-`cmd/mcpserver/main.go`), with `X-Auth-Request-User` set/injected the same
-way it is for the web app. Five tools are available (see
+The MCP server's Streamable HTTP endpoint is `/mcp` (port `8090`). It
+follows the [MCP authorization spec](https://modelcontextprotocol.io/specification/latest/basic/authorization)
+as an OAuth 2.0 protected resource with Pocket ID as the authorization
+server, rather than sitting behind the oauth2-proxy gate (whose 302 login
+redirect only browsers can follow):
+
+- Unauthenticated requests get `401` with `WWW-Authenticate: Bearer
+  resource_metadata=".../.well-known/oauth-protected-resource/mcp"`.
+- That RFC 9728 metadata names Pocket ID; the client runs the
+  authorization-code + PKCE flow there with `resource=<resource URL>`
+  (RFC 8707).
+- Pocket ID issues an RFC 9068 JWT access token with `aud` = the resource
+  URL, which the server verifies against Pocket ID's JWKS.
+
+Pocket ID setup (one-time): register an **API** whose resource is the
+MCP URL, a **public, PKCE** OIDC client for the MCP client (Pocket ID has
+no dynamic client registration), and grant that client user-delegated
+access to the API. The client's callback URL is mcp-remote's
+`http://localhost:3334/oauth/callback` (the port is pinned in the args
+below). Then, e.g. in Claude Desktop's
+`claude_desktop_config.json`:
+
+```json
+"local-recipes": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote@0.16.5", "https://recipes-mcp.internal.morinapps.com/mcp", "3334",
+           "--resource", "https://recipes-mcp.internal.morinapps.com/mcp",
+           "--static-oauth-client-info", "{\"client_id\":\"<client id>\"}"]
+}
+```
+
+For local development, `LOCAL_RECIPES_MCP_AUTH_MODE=header` (set in
+`docker-compose.yml`) trusts `X-Auth-Request-User` instead. Five tools are available (see
 `cmd/mcpserver/tools.go`):
 
 - `import_recipe` - create a recipe (title, Markdown body, ingredients) -
@@ -135,9 +172,9 @@ Deployments read the Postgres connection string from the CNPG-managed
 `database-app` Secret's `uri` key (appending `?sslmode=disable`, matching
 local-podcasts/finance-tracker's in-cluster TLS posture).
 
-To actually route traffic through Pocket ID identity gating, add the
-chosen hostnames (`recipes.internal.morinapps.com` /
-`recipes-mcp.internal.morinapps.com` in the example Ingresses) to the
+To actually route traffic through Pocket ID identity gating, add the web
+hostname (`recipes.internal.morinapps.com` in the example Ingresses) -
+but *not* the MCP hostname, which does its own OAuth - to the
 `pocket-id-sso-internal` `AuthorizationPolicy` in
 `k8s-deployment/deployments/networking/pocket-id-sso.yaml` - this repo
 intentionally doesn't modify that shared cluster config itself.

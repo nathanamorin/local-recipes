@@ -4,11 +4,12 @@
 // behalf.
 //
 // It's served over MCP's Streamable HTTP transport (not stdio), on its
-// own port, so it can sit behind the same Istio ext_authz Pocket ID
-// gating as the main app (see k8s-deployment/deployments/networking/
-// pocket-id-sso.yaml) and resolve X-Auth-Request-User exactly like
-// handlers/user.go does - every tool call operates on the same per-user
-// data as the web UI, scoped by the same identity.
+// own port. In the default "oidc" auth mode it is its own OAuth 2.0
+// protected resource with Pocket ID as the authorization server (see
+// auth.go), and maps each access token's subject onto X-Auth-Request-User
+// so every tool call operates on the same per-user data as the web UI.
+// The "header" mode trusts X-Auth-Request-User directly and is only for
+// local development.
 package main
 
 import (
@@ -34,6 +35,12 @@ type appConfig struct {
 	DBDSN          string `conf:"env:DB_DSN,help:PostgreSQL connection string (required)"`
 	Addr           string `conf:"default::8090,help:listen address for the MCP HTTP server"`
 	DBMaxOpenConns int    `conf:"default:10,help:max concurrent connections in the Postgres connection pool"`
+
+	AuthMode    string   `conf:"default:oidc,help:oidc (verify Pocket ID bearer tokens) or header (trust X-Auth-Request-User - local dev only)"`
+	OIDCIssuer  string   `conf:"help:OIDC issuer URL of the authorization server (oidc mode)"`
+	OIDCJWKSURL string   `conf:"help:JWKS URL; defaults to <issuer>/.well-known/jwks.json"`
+	ResourceURL string   `conf:"help:this server's public MCP endpoint URL; the access token audience (oidc mode)"`
+	OAuthScopes []string `conf:"default:openid;profile;offline_access,help:scopes advertised to MCP clients"`
 }
 
 // userIDContextKey is how the per-request user ID (resolved from
@@ -55,7 +62,7 @@ func withUserContext(ctx context.Context, r *http.Request) context.Context {
 func userIDFromContext(ctx context.Context) (string, error) {
 	userID, _ := ctx.Value(userIDContextKey{}).(string)
 	if userID == "" {
-		return "", fmt.Errorf("missing %s header - this MCP server must be accessed through the identity-gated host", identity.Header)
+		return "", fmt.Errorf("missing %s header - request was not authenticated", identity.Header)
 	}
 	return userID, nil
 }
@@ -84,14 +91,44 @@ func main() {
 	)
 	registerTools(mcpServer, db)
 
-	httpServer := server.NewStreamableHTTPServer(mcpServer,
+	mcpHandler := server.NewStreamableHTTPServer(mcpServer,
 		server.WithHTTPContextFunc(withUserContext),
 	)
 
-	klog.Infof("starting local-recipes MCP server build[%s] addr[%s]", build, cfg.Addr)
-	if err := httpServer.Start(cfg.Addr); err != nil && err != http.ErrServerClosed {
+	mux, err := newMux(cfg, mcpHandler)
+	if err != nil {
+		log.Fatalf("configuring auth: %s", err)
+	}
+
+	klog.Infof("starting local-recipes MCP server build[%s] addr[%s] auth[%s]", build, cfg.Addr, cfg.AuthMode)
+	if err := http.ListenAndServe(cfg.Addr, mux); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func newMux(cfg appConfig, mcpHandler http.Handler) (*http.ServeMux, error) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	switch cfg.AuthMode {
+	case "oidc":
+		auth, err := newOIDCAuth(cfg.OIDCIssuer, cfg.OIDCJWKSURL, cfg.ResourceURL, cfg.OAuthScopes)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range auth.metadataPaths() {
+			mux.HandleFunc("GET "+p, auth.serveMetadata)
+		}
+		mux.Handle("/mcp", auth.middleware(mcpHandler))
+	case "header":
+		klog.Warningf("auth mode %q trusts the %s header from any caller - local development only", cfg.AuthMode, identity.Header)
+		mux.Handle("/mcp", mcpHandler)
+	default:
+		return nil, fmt.Errorf("unknown auth mode %q (want oidc or header)", cfg.AuthMode)
+	}
+	return mux, nil
 }
 
 func registerTools(s *server.MCPServer, db *gorm.DB) {

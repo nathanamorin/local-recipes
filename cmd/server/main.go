@@ -11,6 +11,7 @@ import (
 	"github.com/ardanlabs/conf/v3"
 	"github.com/labstack/echo/v4"
 	"github.com/nathanamorin/local-recipes/handlers"
+	"github.com/nathanamorin/local-recipes/internal/identity"
 	"github.com/nathanamorin/local-recipes/internal/recipes"
 	"k8s.io/klog/v2"
 )
@@ -26,6 +27,7 @@ type appConfig struct {
 	Addr           string `conf:"default::8080,help:listen address for the public HTTP server"`
 	DBMaxOpenConns int    `conf:"default:20,help:max concurrent connections in the Postgres connection pool"`
 	StaticDir      string `conf:"default:static,help:directory to serve the built frontend from"`
+	UserInfoURL    string `conf:"help:OIDC userinfo endpoint used to show the signed-in user's name and picture (optional)"`
 }
 
 // @title           local-recipes API
@@ -58,7 +60,11 @@ func main() {
 
 	e := echo.New()
 
-	h := handlers.New(db)
+	var opts []handlers.Option
+	if cfg.UserInfoURL != "" {
+		opts = append(opts, handlers.WithProfiles(identity.NewProfileFetcher(cfg.UserInfoURL)))
+	}
+	h := handlers.New(db, opts...)
 	h.Register(e)
 
 	// Unauthenticated liveness/readiness target for the k8s Deployment's

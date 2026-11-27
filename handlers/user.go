@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 
+	"k8s.io/klog/v2"
+
 	"github.com/labstack/echo/v4"
 	"github.com/nathanamorin/local-recipes/internal/identity"
 )
@@ -34,6 +36,7 @@ func currentUserID(c echo.Context) string {
 
 type currentUserResponse struct {
 	UserID string `json:"user_id"`
+	identity.Profile
 }
 
 // GetCurrentUser godoc
@@ -43,5 +46,22 @@ type currentUserResponse struct {
 // @Success      200  {object}  currentUserResponse
 // @Router       /me [get]
 func (h *Handler) GetCurrentUser(c echo.Context) error {
-	return c.JSON(http.StatusOK, currentUserResponse{UserID: currentUserID(c)})
+	userID := currentUserID(c)
+	resp := currentUserResponse{UserID: userID}
+	resp.Email = c.Request().Header.Get(identity.EmailHeader)
+
+	// The profile is display-only: if the IdP lookup fails the UI still
+	// gets the ID and email, rather than the whole call failing.
+	if h.profiles != nil {
+		token := c.Request().Header.Get(identity.AccessTokenHeader)
+		if p, err := h.profiles.Fetch(c.Request().Context(), userID, token); err != nil {
+			klog.V(1).Infof("profile lookup for %s failed: %s", userID, err)
+		} else {
+			if p.Email == "" {
+				p.Email = resp.Email
+			}
+			resp.Profile = p
+		}
+	}
+	return c.JSON(http.StatusOK, resp)
 }

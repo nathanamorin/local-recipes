@@ -26,6 +26,7 @@ services:
       - .:/app
       - go-pkg-cache:/go/pkg
     environment:
+      - LOCAL_RECIPES_MCP_AUTH_MODE=header
       - LOCAL_RECIPES_MCP_DB_DSN=postgres://postgres:postgres@postgres:5432/local_recipes?sslmode=disable
     depends_on:
       postgres:

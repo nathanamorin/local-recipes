@@ -6,18 +6,33 @@ package handlers
 
 import (
 	"github.com/labstack/echo/v4"
+	"github.com/nathanamorin/local-recipes/internal/identity"
 	"gorm.io/gorm"
 )
 
 // Handler holds shared dependencies for all route handlers.
 type Handler struct {
-	db *gorm.DB
+	db       *gorm.DB
+	profiles *identity.ProfileFetcher
+}
+
+// Option configures optional Handler dependencies.
+type Option func(*Handler)
+
+// WithProfiles enables looking up the signed-in user's display profile
+// (name, picture, ...) for GET /api/me.
+func WithProfiles(f *identity.ProfileFetcher) Option {
+	return func(h *Handler) { h.profiles = f }
 }
 
 // New constructs a Handler backed by the single shared PostgreSQL
 // connection pool db.
-func New(db *gorm.DB) *Handler {
-	return &Handler{db: db}
+func New(db *gorm.DB, opts ...Option) *Handler {
+	h := &Handler{db: db}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
 }
 
 // APIPrefix is the path prefix every API route is mounted under.
