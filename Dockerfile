@@ -3,7 +3,7 @@
 # runtime with both Go binaries plus the built frontend's static assets.
 # Unlike local-podcasts, nothing here dlopens a glibc-pinned native
 # library, so a lightweight Alpine base works fine for both stages.
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 
 WORKDIR /build
 
