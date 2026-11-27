@@ -15,7 +15,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o local-recipes ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o local-recipes-mcpserver ./cmd/mcpserver
 
-FROM node:20-alpine AS frontend
+FROM node:26-alpine AS frontend
 
 WORKDIR /app
 COPY ./app/local-recipes/ ./
