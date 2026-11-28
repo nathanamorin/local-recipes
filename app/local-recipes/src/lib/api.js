@@ -1,58 +1,64 @@
-// api.js is a thin fetch wrapper around local-recipes' HTTP API. Requests
-// go through the dev server's proxy (see package.json's "proxy" field) in
-// development, or are same-origin in production (the Go server serves
-// both the API and the built frontend - see cmd/server/main.go), so paths
-// here are always relative, with no host.
-//
-// There's intentionally no client-side auth of any kind: identity comes
-// from the X-Auth-Request-User header Istio injects upstream of this app
-// (see internal/identity), which the browser never sees or needs to
-// handle directly.
-// All API routes live under /api (see handlers.APIPrefix) so they never
-// collide with the SPA's own client-side routes.
+// Thin fetch wrapper around the local-recipes HTTP API. All routes live
+// under /api (see handlers.APIPrefix) so they never collide with the SPA's
+// client-side routes. Identity comes from the X-Auth-Request-User header
+// the SSO gate injects upstream - the browser never handles auth itself.
+
 const API_PREFIX = '/api'
 
-async function request(path, options = {}) {
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function request(path, { method = 'GET', body } = {}) {
   const res = await fetch(API_PREFIX + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   const text = await res.text()
-  const data = text ? JSON.parse(text) : null
+  let data = null
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = null
+    }
+  }
   if (!res.ok) {
-    const message = (data && data.error) || `request to ${path} failed (${res.status})`
-    throw new Error(message)
+    throw new ApiError((data && data.error) || `Request failed (${res.status})`, res.status)
   }
   return data
 }
 
-const get = (path) => request(path)
-const del = (path) => request(path, { method: 'DELETE' })
-const post = (path, body) => request(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })
-const put = (path, body) => request(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined })
+const enc = encodeURIComponent
 
 export const api = {
-  getCurrentUser: () => get('/me'),
+  getCurrentUser: () => request('/me'),
 
-  listRecipes: () => get('/recipes'),
-  getRecipe: (id) => get(`/recipes/${encodeURIComponent(id)}`),
-  createRecipe: (recipe) => post('/recipes', recipe),
-  updateRecipe: (id, recipe) => put(`/recipes/${encodeURIComponent(id)}`, recipe),
-  deleteRecipe: (id) => del(`/recipes/${encodeURIComponent(id)}`),
+  listRecipes: () => request('/recipes').then((d) => d.recipes || []),
+  getRecipe: (id) => request(`/recipes/${enc(id)}`),
+  createRecipe: (recipe) => request('/recipes', { method: 'POST', body: recipe }),
+  updateRecipe: (id, recipe) => request(`/recipes/${enc(id)}`, { method: 'PUT', body: recipe }),
+  deleteRecipe: (id) => request(`/recipes/${enc(id)}`, { method: 'DELETE' }),
 
-  getRating: (recipeId) => get(`/recipes/${encodeURIComponent(recipeId)}/rating`),
-  rateRecipe: (recipeId, score, notes) => put(`/recipes/${encodeURIComponent(recipeId)}/rating`, { score, notes }),
+  // 204 (not rated yet) parses to null.
+  getRating: (id) => request(`/recipes/${enc(id)}/rating`),
+  rateRecipe: (id, score, notes) => request(`/recipes/${enc(id)}/rating`, { method: 'PUT', body: { score, notes } }),
 
-  listIngredients: () => get('/ingredients'),
-  listLowStockIngredients: () => get('/ingredients/low-stock'),
-  addIngredient: (ingredient) => post('/ingredients', ingredient),
-  deleteIngredient: (id) => del(`/ingredients/${encodeURIComponent(id)}`),
-  adjustStock: (id, delta, unit) => put(`/ingredients/${encodeURIComponent(id)}/stock`, { delta, unit }),
-  setStock: (id, quantity, unit) => put(`/ingredients/${encodeURIComponent(id)}/stock`, { quantity, unit }),
-  setLowStockThreshold: (id, threshold) => put(`/ingredients/${encodeURIComponent(id)}/low-stock-threshold`, { threshold }),
+  listIngredients: () => request('/ingredients').then((d) => d.ingredients || []),
+  addIngredient: (ingredient) => request('/ingredients', { method: 'POST', body: ingredient }),
+  deleteIngredient: (id) => request(`/ingredients/${enc(id)}`, { method: 'DELETE' }),
+  adjustStock: (id, delta, unit) => request(`/ingredients/${enc(id)}/stock`, { method: 'PUT', body: { delta, unit } }),
+  setStock: (id, quantity, unit) => request(`/ingredients/${enc(id)}/stock`, { method: 'PUT', body: { quantity, unit } }),
+  setLowStockThreshold: (id, threshold) =>
+    request(`/ingredients/${enc(id)}/low-stock-threshold`, { method: 'PUT', body: { threshold } }),
 
-  getScheduleConfig: () => get('/schedule/config'),
-  saveScheduleConfig: (config) => put('/schedule/config', config),
-  generateSchedule: (weekStart) => post(`/schedule/generate?week_start=${encodeURIComponent(weekStart)}`),
-  listSchedule: (from, to) => get(`/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  getScheduleConfig: () => request('/schedule/config'),
+  saveScheduleConfig: (config) => request('/schedule/config', { method: 'PUT', body: config }),
+  generateSchedule: (weekStart) =>
+    request(`/schedule/generate?week_start=${enc(weekStart)}`, { method: 'POST' }).then((d) => d.meals || []),
+  listSchedule: (from, to) => request(`/schedule?from=${enc(from)}&to=${enc(to)}`).then((d) => d.meals || []),
 }

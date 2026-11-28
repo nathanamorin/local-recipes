@@ -4,7 +4,7 @@ mkfile_dir := $(dir $(mkfile_path))
 .PHONY: build up down logs frontend seed run sh test vet fmt
 
 # Start all services with hot reload via Docker Compose (air for the API
-# server, `go run` for the MCP server, npm start for the frontend)
+# server, `go run` for the MCP server, Vite dev server for the frontend)
 up:
 	docker compose up --build -d
 	$(MAKE) logs
@@ -17,7 +17,7 @@ down:
 logs:
 	docker compose logs -f
 
-# Run the React frontend dev server locally (requires node/npm)
+# Run the Vite frontend dev server locally (requires node/npm)
 frontend:
 	cd app/local-recipes && npm start
 

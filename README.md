@@ -6,8 +6,8 @@ weekly meal schedule - plus an MCP server so an LLM client can import
 recipes and log ingredient stock on your behalf.
 
 Modeled after [local-podcasts](../local-podcasts) (Go/Echo/GORM backend,
-plain Create React App frontend, Istio/Pocket ID identity, k8s deployment),
-adapted for recipes.
+React frontend, Istio/Pocket ID identity, k8s deployment), adapted for
+recipes.
 
 ## Architecture
 
@@ -22,8 +22,13 @@ adapted for recipes.
 - **`internal/identity`** - resolves the current user from the
   `X-Auth-Request-User` header.
 - **`handlers`** - Echo HTTP handlers/routing for `cmd/server`.
-- **`app/local-recipes`** - the React frontend (plain Create React App,
-  react-router-dom, react-markdown for rendering recipe bodies).
+- **`app/local-recipes`** - the React frontend (Vite, react-router-dom,
+  react-markdown). Recipe library with search/sort, a recipe page with an
+  ingredient checklist, servings scaling, per-ingredient pantry status and
+  a cook mode (screen wake lock, tap-to-complete steps), a pantry with
+  quick stock adjustments, and a weekly meal planner. Light/dark themes,
+  mobile tab bar, and per-page code splitting; no UI framework or web
+  fonts. `npm run build` writes `build/`, which `cmd/server` serves.
 
 ### Data model: single shared PostgreSQL database
 
@@ -85,8 +90,10 @@ make down
 ```
 
 The API server listens on `:8080`, the MCP server on `:8090`, and the
-frontend dev server on `:3000` (proxying API requests to the backend -
-see `app/local-recipes/package.json`'s `proxy` field).
+frontend dev server on `:3000`. It proxies `/api` to the backend
+(`API_PROXY_TARGET`, default `http://localhost:8080`) and injects
+`X-Auth-Request-User: dev-user` (override with `DEV_USER`), standing in for
+the SSO gate - see `app/local-recipes/vite.config.js`.
 
 Without Istio injecting `X-Auth-Request-User` in front of you locally,
 set it yourself when calling the API directly, e.g.:

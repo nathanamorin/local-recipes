@@ -171,12 +171,13 @@ func (h *Handler) RateRecipe(c echo.Context) error {
 // @Produce      json
 // @Param        recipe_id  path  string  true  "Recipe ID"
 // @Success      200  {object}  recipes.Rating
-// @Failure      404  {object}  map[string]string
+// @Success      204  "the user hasn't rated this recipe yet"
 // @Router       /recipes/{recipe_id}/rating [get]
 func (h *Handler) GetRecipeRating(c echo.Context) error {
 	rating, err := recipes.GetRating(h.db, currentUserID(c), c.Param("recipe_id"))
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "no rating yet"})
+		// Not rated yet is a normal state, not an error.
+		return c.NoContent(http.StatusNoContent)
 	}
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "error getting rating"})
