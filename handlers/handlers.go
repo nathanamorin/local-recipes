@@ -68,6 +68,8 @@ func (h *Handler) Register(e *echo.Echo) {
 	g.DELETE("/recipes/:recipe_id", h.DeleteRecipe)
 	g.POST("/recipes/:recipe_id/archive", h.ArchiveRecipe)
 	g.POST("/recipes/:recipe_id/restore", h.RestoreRecipe)
+	g.POST("/recipes/:recipe_id/cook", h.CookRecipe)
+	g.GET("/shopping", h.GetShoppingList)
 	g.GET("/recipes/:recipe_id/rating", h.GetRecipeRating)
 	g.PUT("/recipes/:recipe_id/rating", h.RateRecipe)
 

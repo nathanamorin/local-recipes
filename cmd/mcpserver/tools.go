@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -164,6 +165,90 @@ func updateRecipeHandler(db *gorm.DB) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 		return structuredResult(recipe)
+	}
+}
+
+// --- get_shopping_list ---
+
+type shoppingListArgs struct {
+	From string `json:"from,omitempty" jsonschema:"First day to cover, YYYY-MM-DD. Defaults to today"`
+	To   string `json:"to,omitempty" jsonschema:"Last day to cover, YYYY-MM-DD. Defaults to the Sunday ending that week"`
+}
+
+func shoppingListTool() mcp.Tool {
+	return mcp.NewTool("get_shopping_list",
+		mcp.WithDescription("Get what the current user needs to buy: ingredients for the meals planned in the date range (minus what's in the pantry, converting units where exact) plus restocking anything at or below its low-stock threshold. Items with tracked=false aren't tracked in the pantry, so the user should check whether they have them."),
+		mcp.WithInputSchema[shoppingListArgs](),
+		readOnly(),
+	)
+}
+
+func shoppingListHandler(db *gorm.DB) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		userID, err := userIDFromContext(ctx)
+		if err != nil {
+			return toolError(err)
+		}
+		var args shoppingListArgs
+		if err := request.BindArguments(&args); err != nil {
+			return toolError(err)
+		}
+		today := time.Now().UTC().Truncate(24 * time.Hour)
+		from, to := today, today
+		if args.From != "" {
+			if from, err = time.Parse("2006-01-02", args.From); err != nil {
+				return toolError(fmt.Errorf("from must be YYYY-MM-DD"))
+			}
+		}
+		to = from.AddDate(0, 0, (7-int(from.Weekday()))%7)
+		if args.To != "" {
+			if to, err = time.Parse("2006-01-02", args.To); err != nil {
+				return toolError(fmt.Errorf("to must be YYYY-MM-DD"))
+			}
+		}
+		list, err := recipes.BuildShoppingList(db, userID, from, to)
+		if err != nil {
+			return toolError(err)
+		}
+		return structuredResult(list)
+	}
+}
+
+// --- cook_recipe ---
+
+type cookRecipeArgs struct {
+	RecipeID string `json:"recipe_id" jsonschema:"ID of the recipe that was cooked, from list_recipes"`
+	Servings int    `json:"servings,omitempty" jsonschema:"Servings actually made, to scale the amounts. Omit to use the recipe as written"`
+	DryRun   bool   `json:"dry_run,omitempty" jsonschema:"If true, only report what would be deducted"`
+}
+
+func cookRecipeTool() mcp.Tool {
+	return mcp.NewTool("cook_recipe",
+		mcp.WithDescription("Record that the user cooked a recipe: deducts one batch of its non-optional ingredients (scaled to servings) from tracked pantry stock. Untracked, optional or unit-incompatible ingredients are skipped and reported."),
+		mcp.WithInputSchema[cookRecipeArgs](),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+func cookRecipeHandler(db *gorm.DB) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		userID, err := userIDFromContext(ctx)
+		if err != nil {
+			return toolError(err)
+		}
+		var args cookRecipeArgs
+		if err := request.BindArguments(&args); err != nil {
+			return toolError(err)
+		}
+		if strings.TrimSpace(args.RecipeID) == "" {
+			return toolError(fmt.Errorf("missing required field(s): recipe_id"))
+		}
+		res, err := recipes.CookRecipe(db, userID, args.RecipeID, args.Servings, args.DryRun)
+		if err != nil {
+			return toolError(err)
+		}
+		return structuredResult(res)
 	}
 }
 

@@ -7,8 +7,9 @@ import { personInitials } from '../lib/format'
 
 const NAV = [
   { to: '/', label: 'Recipes', icon: 'book', end: true },
-  { to: '/pantry', label: 'Pantry', icon: 'basket' },
   { to: '/plan', label: 'Meal plan', icon: 'calendar' },
+  { to: '/shopping', label: 'Shopping', icon: 'cart' },
+  { to: '/pantry', label: 'Pantry', icon: 'basket' },
 ]
 
 function UserBadge() {

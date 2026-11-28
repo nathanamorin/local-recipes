@@ -8,6 +8,7 @@ import { displayUnit, formatMinutes, formatQuantity, totalMinutes } from '../lib
 import { stripIngredientsSection } from '../lib/markdown'
 import { Icon } from '../components/Icon'
 import { archiveRecipe, restoreRecipe } from '../lib/recipeActions'
+import { Dialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
 import { Chip, ErrorState, RecipeCover, Skeleton, Stars, Stepper } from '../components/ui'
 
@@ -74,9 +75,8 @@ function stockStatus(ingredient) {
 
 const STATUS_LABEL = { ok: 'In pantry', low: 'Running low', out: 'Out of stock' }
 
-function IngredientsPanel({ recipe, pantryById }) {
+function IngredientsPanel({ recipe, pantryById, servings, setServings }) {
   const base = recipe.servings > 0 ? recipe.servings : 0
-  const [servings, setServings] = useState(base || 1)
   const [checked, toggle, reset] = useSessionSet(`checked:${recipe.id}`)
   const factor = base ? servings / base : 1
   const items = recipe.ingredients || []
@@ -316,6 +316,125 @@ function RatingCard({ recipeId, onRated }) {
   )
 }
 
+function fmtStock(n, unit) {
+  const u = displayUnit(unit)
+  const q = Math.round(n * 100) / 100
+  return u ? `${q} ${u}` : String(q)
+}
+
+// Preview (dry run) then apply one batch's worth of pantry deductions,
+// with an Undo that re-adds exactly what was removed.
+function CookDialog({ open, onClose, recipe, servings }) {
+  const toast = useToast()
+  const [preview, setPreview] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setPreview(null)
+    setError(null)
+    api
+      .cookRecipe(recipe.id, servings, true)
+      .then(setPreview)
+      .catch(setError)
+  }, [open, recipe.id, servings])
+
+  const changes = preview ? preview.changes.filter((c) => c.quantity > 0) : []
+
+  const apply = async () => {
+    setBusy(true)
+    try {
+      const res = await api.cookRecipe(recipe.id, servings, false)
+      const applied = res.changes.filter((c) => c.quantity > 0)
+      invalidate('ingredients')
+      invalidate('shopping')
+      onClose()
+      toast(`Used ingredients for ${recipe.title}`, {
+        duration: 8000,
+        action: applied.length
+          ? {
+              label: 'Undo',
+              onClick: async () => {
+                try {
+                  for (const c of applied) await api.adjustStock(c.ingredient_id, c.quantity, c.unit)
+                  invalidate('ingredients')
+                  invalidate('shopping')
+                  toast('Pantry restored')
+                } catch (e) {
+                  toast(e.message, { tone: 'error' })
+                }
+              },
+            }
+          : undefined,
+      })
+    } catch (e) {
+      toast(e.message, { tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Use ingredients"
+      size="md"
+      footer={
+        <>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={apply} disabled={busy || !changes.length}>
+            {busy ? 'Updating…' : `Remove from pantry`}
+          </button>
+        </>
+      }
+    >
+      <p className="muted">
+        Subtracts {servings ? `${servings} serving${servings === 1 ? '' : 's'} of ` : ''}this recipe from your pantry.
+      </p>
+      {error && <p className="field-error">{error.message}</p>}
+      {!preview && !error && <Skeleton style={{ height: 120, marginTop: 12 }} />}
+      {preview && (
+        <>
+          {changes.length > 0 ? (
+            <ul className="cook-list">
+              {changes.map((c) => (
+                <li key={c.ingredient_id + c.before}>
+                  <span className="cook-name">{c.name}</span>
+                  <span className="cook-delta">−{fmtStock(c.quantity, c.unit)}</span>
+                  <span className="cook-after">
+                    {fmtStock(c.before, c.unit)} → <strong>{fmtStock(c.after, c.unit)}</strong>
+                    {c.short && <span className="pill pill-warn">not enough</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="cook-empty">None of this recipe's ingredients are tracked in your pantry.</p>
+          )}
+          {preview.skipped.length > 0 && (
+            <details className="cook-skipped">
+              <summary>
+                {preview.skipped.length} not changed
+              </summary>
+              <ul>
+                {preview.skipped.map((s, i) => (
+                  <li key={i}>
+                    <span className="cook-name">{s.name}</span> <span className="muted">— {s.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
+      )}
+    </Dialog>
+  )
+}
+
 function DetailSkeleton() {
   return (
     <div className="page" aria-busy="true">
@@ -339,6 +458,8 @@ export default function RecipeDetail() {
   const { data: pantry } = useResource('ingredients', api.listIngredients)
   const [cookMode, setCookMode] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [servingsById, setServingsById] = useState({})
+  const [cookOpen, setCookOpen] = useState(false)
   const wakeLockSupported = useWakeLock(cookMode)
   const topRef = useRef(null)
 
@@ -400,6 +521,8 @@ export default function RecipeDetail() {
   }
 
   const total = totalMinutes(recipe)
+  const servings = servingsById[recipe.id] ?? (recipe.servings > 0 ? recipe.servings : 1)
+  const setServings = (n) => setServingsById((m) => ({ ...m, [recipe.id]: n }))
 
   return (
     <article className={`page recipe-page ${cookMode ? 'is-cooking' : ''}`} ref={topRef}>
@@ -446,6 +569,9 @@ export default function RecipeDetail() {
               <Icon name={cookMode ? 'x' : 'flame'} size={18} />
               {cookMode ? 'Exit cook mode' : 'Start cooking'}
             </button>
+            <button className="btn btn-secondary" onClick={() => setCookOpen(true)}>
+              <Icon name="basket" size={18} /> Use ingredients
+            </button>
             <Link className="btn btn-secondary" to={`/recipes/${recipe.id}/edit`}>
               <Icon name="pencil" size={18} /> Edit
             </Link>
@@ -472,7 +598,7 @@ export default function RecipeDetail() {
 
       <div className="detail-layout">
         <aside className="detail-aside">
-          <IngredientsPanel recipe={recipe} pantryById={pantryById} />
+          <IngredientsPanel recipe={recipe} pantryById={pantryById} servings={servings} setServings={setServings} />
         </aside>
         <div className="detail-main">
           <section className="card method-card" aria-labelledby="method-heading">
@@ -484,6 +610,12 @@ export default function RecipeDetail() {
           {!cookMode && <RatingCard recipeId={recipe.id} onRated={refreshAfterRating} />}
         </div>
       </div>
+      <CookDialog
+        open={cookOpen}
+        onClose={() => setCookOpen(false)}
+        recipe={recipe}
+        servings={recipe.servings > 0 ? servings : 0}
+      />
     </article>
   )
 }

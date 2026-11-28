@@ -46,6 +46,9 @@ export const api = {
   listArchivedRecipes: () => request('/recipes?archived=true').then((d) => d.recipes || []),
   archiveRecipe: (id) => request(`/recipes/${enc(id)}/archive`, { method: 'POST' }),
   restoreRecipe: (id) => request(`/recipes/${enc(id)}/restore`, { method: 'POST' }),
+  cookRecipe: (id, servings, dryRun) =>
+    request(`/recipes/${enc(id)}/cook`, { method: 'POST', body: { servings, dry_run: dryRun } }),
+  getShoppingList: (from, to) => request(`/shopping?from=${enc(from)}&to=${enc(to)}`),
 
   // 204 (not rated yet) parses to null.
   getRating: (id) => request(`/recipes/${enc(id)}/rating`),

@@ -148,6 +148,7 @@ export default function Planner() {
       const fresh = await api.generateSchedule(from)
       setCached(`schedule:${from}`, fresh)
       invalidate(`schedule:${from}`)
+      invalidate('shopping')
       toast(`Planned ${relativeWeek(weekStart).toLowerCase()}`)
     } catch (e) {
       toast(e.message, { tone: 'error' })

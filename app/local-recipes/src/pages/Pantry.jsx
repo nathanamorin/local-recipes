@@ -47,6 +47,7 @@ function usePantryMutations() {
       toast(e.message, { tone: 'error' })
     } finally {
       invalidate('ingredients')
+      invalidate('shopping')
     }
   }
   return {
@@ -195,6 +196,7 @@ function AddItemDialog({ open, onClose, categories }) {
     try {
       await api.addIngredient({ name: form.name.trim(), category: form.category.trim(), default_unit: form.default_unit.trim() })
       invalidate('ingredients')
+      invalidate('shopping')
       toast(`Added ${form.name.trim()}`)
       setForm({ name: '', category: '', default_unit: '' })
       onClose()

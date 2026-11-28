@@ -53,6 +53,7 @@ func TestToolSchemasArePublished(t *testing.T) {
 		"import_recipe":        {"title", "body_markdown", "ingredients"},
 		"log_ingredient_stock": {"ingredient"},
 		"update_recipe":        {"recipe_id", "title", "body_markdown", "ingredients"},
+		"cook_recipe":          {"recipe_id"},
 	}
 	seen := 0
 	for _, raw := range res["tools"].([]any) {
@@ -111,7 +112,7 @@ func TestToolResults(t *testing.T) {
 		t.Fatalf("import failed: %v", res)
 	}
 
-	for _, name := range []string{"list_recipes", "list_ingredients", "list_low_stock_ingredients", "import_recipe"} {
+	for _, name := range []string{"list_recipes", "list_ingredients", "list_low_stock_ingredients", "import_recipe", "get_shopping_list"} {
 		t.Run(name+" returns object structuredContent", func(t *testing.T) {
 			args := map[string]any{}
 			if name == "import_recipe" {
