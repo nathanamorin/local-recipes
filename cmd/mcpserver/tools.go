@@ -63,6 +63,31 @@ func (a importRecipeArgs) validate() error {
 	return nil
 }
 
+func (a importRecipeArgs) toInput() recipes.RecipeInput {
+	ingredients := make([]recipes.IngredientInput, len(a.Ingredients))
+	for i, ing := range a.Ingredients {
+		ingredients[i] = recipes.IngredientInput{
+			Name:     ing.Name,
+			Quantity: ing.Quantity,
+			Unit:     ing.Unit,
+			Notes:    ing.Notes,
+			Optional: ing.Optional,
+			Category: ing.Category,
+		}
+	}
+	return recipes.RecipeInput{
+		Title:        a.Title,
+		Description:  a.Description,
+		BodyMarkdown: a.BodyMarkdown,
+		Servings:     a.Servings,
+		PrepMinutes:  a.PrepMinutes,
+		CookMinutes:  a.CookMinutes,
+		SourceURL:    a.SourceURL,
+		ImageURL:     a.ImageURL,
+		Ingredients:  ingredients,
+	}
+}
+
 func importRecipeTool() mcp.Tool {
 	return mcp.NewTool("import_recipe",
 		mcp.WithDescription("Import a recipe (e.g. found on the web, or transcribed from a photo/conversation) into the current user's recipe library, with its ingredients tagged so they can be tracked against stock levels. The recipe body should be well-formatted Markdown."),
@@ -87,29 +112,54 @@ func importRecipeHandler(db *gorm.DB) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 
-		ingredients := make([]recipes.IngredientInput, len(args.Ingredients))
-		for i, ing := range args.Ingredients {
-			ingredients[i] = recipes.IngredientInput{
-				Name:     ing.Name,
-				Quantity: ing.Quantity,
-				Unit:     ing.Unit,
-				Notes:    ing.Notes,
-				Optional: ing.Optional,
-				Category: ing.Category,
-			}
+		recipe, err := recipes.CreateRecipe(db, userID, args.toInput())
+		if err != nil {
+			return toolError(err)
 		}
+		return structuredResult(recipe)
+	}
+}
 
-		recipe, err := recipes.CreateRecipe(db, userID, recipes.RecipeInput{
-			Title:        args.Title,
-			Description:  args.Description,
-			BodyMarkdown: args.BodyMarkdown,
-			Servings:     args.Servings,
-			PrepMinutes:  args.PrepMinutes,
-			CookMinutes:  args.CookMinutes,
-			SourceURL:    args.SourceURL,
-			ImageURL:     args.ImageURL,
-			Ingredients:  ingredients,
-		})
+// --- update_recipe ---
+
+// updateRecipeArgs replaces an existing recipe wholesale: every field of
+// import_recipe, plus the ID of the recipe to overwrite.
+type updateRecipeArgs struct {
+	RecipeID string `json:"recipe_id" jsonschema:"ID of the recipe to replace, from list_recipes"`
+	importRecipeArgs
+}
+
+func updateRecipeTool() mcp.Tool {
+	return mcp.NewTool("update_recipe",
+		mcp.WithDescription("Replace an existing recipe in the current user's library (title, body, metadata and the full ingredient list) - e.g. to fix or complete a recipe. Fields not provided are cleared, so always send the complete recipe. Get the recipe_id from list_recipes."),
+		mcp.WithInputSchema[updateRecipeArgs](),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+func updateRecipeHandler(db *gorm.DB) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		userID, err := userIDFromContext(ctx)
+		if err != nil {
+			return toolError(err)
+		}
+		var args updateRecipeArgs
+		if err := request.BindArguments(&args); err != nil {
+			return toolError(err)
+		}
+		if strings.TrimSpace(args.RecipeID) == "" {
+			return toolError(fmt.Errorf("missing required field(s): recipe_id - nothing was saved"))
+		}
+		if err := args.validate(); err != nil {
+			return toolError(err)
+		}
+		if _, err := recipes.UpdateRecipe(db, userID, args.RecipeID, args.toInput()); err != nil {
+			return toolError(err)
+		}
+		// Re-read so the result includes resolved ingredients, like import_recipe.
+		recipe, err := recipes.GetRecipe(db, userID, args.RecipeID)
 		if err != nil {
 			return toolError(err)
 		}

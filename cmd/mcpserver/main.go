@@ -133,6 +133,7 @@ func newMux(cfg appConfig, mcpHandler http.Handler) (*http.ServeMux, error) {
 
 func registerTools(s *server.MCPServer, db *gorm.DB) {
 	s.AddTool(importRecipeTool(), importRecipeHandler(db))
+	s.AddTool(updateRecipeTool(), updateRecipeHandler(db))
 	s.AddTool(logIngredientStockTool(), logIngredientStockHandler(db))
 	s.AddTool(listIngredientsTool(), listIngredientsHandler(db))
 	s.AddTool(listLowStockTool(), listLowStockHandler(db))

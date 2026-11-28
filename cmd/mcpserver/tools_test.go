@@ -52,6 +52,7 @@ func TestToolSchemasArePublished(t *testing.T) {
 	wantRequired := map[string][]string{
 		"import_recipe":        {"title", "body_markdown", "ingredients"},
 		"log_ingredient_stock": {"ingredient"},
+		"update_recipe":        {"recipe_id", "title", "body_markdown", "ingredients"},
 	}
 	seen := 0
 	for _, raw := range res["tools"].([]any) {
@@ -133,4 +134,28 @@ func TestToolResults(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("want 2 recipes, got %d", len(list))
 	}
+
+	t.Run("update_recipe replaces a recipe", func(t *testing.T) {
+		id := list[0].(map[string]any)["id"].(string)
+		if res := callTool(t, s, "update_recipe", map[string]any{"recipe_id": id, "title": "only a title"}); res["isError"] != true {
+			t.Fatalf("incomplete update should be rejected, got %v", res)
+		}
+		res := callTool(t, s, "update_recipe", map[string]any{
+			"recipe_id":     id,
+			"title":         "Soft Pretzels",
+			"body_markdown": "## Steps\n1. Boil 30s\n2. Bake 450F",
+			"servings":      8,
+			"ingredients": []map[string]any{
+				{"name": "bread flour", "quantity": 560, "unit": "g"},
+				{"name": "baking soda", "quantity": 0.67, "unit": "cup"},
+			},
+		})
+		if res["isError"] == true {
+			t.Fatalf("update failed: %v", res)
+		}
+		got := res["structuredContent"].(map[string]any)
+		if got["title"] != "Soft Pretzels" || got["servings"].(float64) != 8 || len(got["ingredients"].([]any)) != 2 {
+			t.Fatalf("update not applied: %v", got)
+		}
+	})
 }
