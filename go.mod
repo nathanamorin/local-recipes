@@ -11,7 +11,7 @@ require (
 	github.com/labstack/echo/v4 v4.13.3
 	github.com/mark3labs/mcp-go v1.6.0
 	gorm.io/driver/postgres v1.5.9
-	gorm.io/gorm v1.25.12
+	gorm.io/gorm v1.31.2
 	k8s.io/klog/v2 v2.130.1
 )
 
