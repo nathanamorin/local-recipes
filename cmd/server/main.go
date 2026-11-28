@@ -28,6 +28,7 @@ type appConfig struct {
 	DBMaxOpenConns int    `conf:"default:20,help:max concurrent connections in the Postgres connection pool"`
 	StaticDir      string `conf:"default:static,help:directory to serve the built frontend from"`
 	UserInfoURL    string `conf:"help:OIDC userinfo endpoint used to show the signed-in user's name and picture (optional)"`
+	PictureURL     string `conf:"help:profile picture URL template with {sub} replaced by the user ID, used when userinfo has none (optional)"`
 }
 
 // @title           local-recipes API
@@ -63,6 +64,9 @@ func main() {
 	var opts []handlers.Option
 	if cfg.UserInfoURL != "" {
 		opts = append(opts, handlers.WithProfiles(identity.NewProfileFetcher(cfg.UserInfoURL)))
+	}
+	if cfg.PictureURL != "" {
+		opts = append(opts, handlers.WithPictureURLTemplate(cfg.PictureURL))
 	}
 	h := handlers.New(db, opts...)
 	h.Register(e)

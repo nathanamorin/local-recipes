@@ -51,17 +51,20 @@ func (h *Handler) GetCurrentUser(c echo.Context) error {
 	resp.Email = c.Request().Header.Get(identity.EmailHeader)
 
 	// The profile is display-only: if the IdP lookup fails the UI still
-	// gets the ID and email, rather than the whole call failing.
+	// gets the ID, email and (templated) picture rather than an error.
 	if h.profiles != nil {
 		token := c.Request().Header.Get(identity.AccessTokenHeader)
 		if p, err := h.profiles.Fetch(c.Request().Context(), userID, token); err != nil {
-			klog.V(1).Infof("profile lookup for %s failed: %s", userID, err)
+			klog.Warningf("userinfo lookup for %s failed (showing fallback profile): %s", userID, err)
 		} else {
 			if p.Email == "" {
 				p.Email = resp.Email
 			}
 			resp.Profile = p
 		}
+	}
+	if resp.Picture == "" {
+		resp.Picture = identity.PictureURL(h.pictureTemplate, userID)
 	}
 	return c.JSON(http.StatusOK, resp)
 }

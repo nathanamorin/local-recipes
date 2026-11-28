@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,6 +33,7 @@ type Profile struct {
 type ProfileFetcher struct {
 	userInfoURL string
 	ttl         time.Duration
+	failureTTL  time.Duration
 	client      *http.Client
 
 	mu    sync.Mutex
@@ -39,6 +42,7 @@ type ProfileFetcher struct {
 
 type cachedProfile struct {
 	profile Profile
+	err     error
 	expires time.Time
 }
 
@@ -46,8 +50,13 @@ func NewProfileFetcher(userInfoURL string) *ProfileFetcher {
 	return &ProfileFetcher{
 		userInfoURL: userInfoURL,
 		ttl:         10 * time.Minute,
-		client:      &http.Client{Timeout: 5 * time.Second},
-		cache:       map[string]cachedProfile{},
+		// Failures are cached too: oauth2-proxy keeps forwarding the
+		// access token from login without refreshing it, so once it
+		// expires every lookup fails until the user signs in again -
+		// no point re-sending it to the IdP on every page load.
+		failureTTL: 5 * time.Minute,
+		client:     &http.Client{Timeout: 5 * time.Second},
+		cache:      map[string]cachedProfile{},
 	}
 }
 
@@ -58,10 +67,22 @@ func (f *ProfileFetcher) Fetch(ctx context.Context, userID, accessToken string) 
 	f.mu.Lock()
 	if c, ok := f.cache[userID]; ok && time.Now().Before(c.expires) {
 		f.mu.Unlock()
-		return c.profile, nil
+		return c.profile, c.err
 	}
 	f.mu.Unlock()
 
+	p, err := f.fetch(ctx, userID, accessToken)
+	ttl := f.ttl
+	if err != nil {
+		ttl = f.failureTTL
+	}
+	f.mu.Lock()
+	f.cache[userID] = cachedProfile{profile: p, err: err, expires: time.Now().Add(ttl)}
+	f.mu.Unlock()
+	return p, err
+}
+
+func (f *ProfileFetcher) fetch(ctx context.Context, userID, accessToken string) (Profile, error) {
 	if accessToken == "" {
 		return Profile{}, fmt.Errorf("no access token forwarded")
 	}
@@ -94,16 +115,23 @@ func (f *ProfileFetcher) Fetch(ctx context.Context, userID, accessToken string) 
 		return Profile{}, fmt.Errorf("userinfo subject does not match the authenticated user")
 	}
 
-	p := Profile{
+	return Profile{
 		Email:    claims.Email,
 		Name:     firstNonEmpty(claims.DisplayName, claims.Name),
 		Username: claims.PreferredUsername,
 		Picture:  claims.Picture,
+	}, nil
+}
+
+// PictureURL expands a profile picture URL template, replacing {sub} with
+// the (path-escaped) user ID. For Pocket ID, whose subject is the user ID
+// and whose picture endpoint is public, this works without any token:
+// https://id.example.com/api/users/{sub}/profile-picture.png
+func PictureURL(template, userID string) string {
+	if template == "" || userID == "" {
+		return ""
 	}
-	f.mu.Lock()
-	f.cache[userID] = cachedProfile{profile: p, expires: time.Now().Add(f.ttl)}
-	f.mu.Unlock()
-	return p, nil
+	return strings.ReplaceAll(template, "{sub}", url.PathEscape(userID))
 }
 
 func firstNonEmpty(vals ...string) string {

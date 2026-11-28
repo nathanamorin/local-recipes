@@ -111,6 +111,7 @@ curl -H "X-Auth-Request-User: dev-user" http://localhost:8080/api/recipes
 | `LOCAL_RECIPES_DB_MAX_OPEN_CONNS` | `cmd/server` | `20` | Postgres connection pool size |
 | `LOCAL_RECIPES_STATIC_DIR` | `cmd/server` | `static` | Directory the built frontend is served from |
 | `LOCAL_RECIPES_USER_INFO_URL` | `cmd/server` | *(unset)* | OIDC userinfo endpoint; when set, `GET /api/me` adds the user's name, username, email and picture (looked up with the forwarded `X-Auth-Request-Access-Token`) |
+| `LOCAL_RECIPES_PICTURE_URL` | `cmd/server` | *(unset)* | Profile picture URL template, `{sub}` = user ID; used when userinfo has no picture (e.g. the forwarded token expired). For Pocket ID: `https://<issuer>/api/users/{sub}/profile-picture.png` (public endpoint) |
 | `LOCAL_RECIPES_MCP_DB_DSN` | `cmd/mcpserver` | *(required)* | PostgreSQL connection string |
 | `LOCAL_RECIPES_MCP_ADDR` | `cmd/mcpserver` | `:8090` | Listen address |
 | `LOCAL_RECIPES_MCP_DB_MAX_OPEN_CONNS` | `cmd/mcpserver` | `10` | Postgres connection pool size |

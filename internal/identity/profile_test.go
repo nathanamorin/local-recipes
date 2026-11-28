@@ -43,10 +43,27 @@ func TestProfileFetcher(t *testing.T) {
 	if _, err := f.Fetch(ctx, "carol", "tok-bob"); err == nil {
 		t.Fatal("expected subject mismatch error")
 	}
-	if _, err := f.Fetch(ctx, "carol", ""); err == nil {
+	if _, err := f.Fetch(ctx, "dave", ""); err == nil {
 		t.Fatal("expected error without access token")
 	}
-	if _, err := f.Fetch(ctx, "carol", "bad"); err == nil {
+
+	// An expired token (userinfo 401) fails, and the failure is cached so
+	// the IdP isn't hit again on the next page load.
+	before := calls.Load()
+	if _, err := f.Fetch(ctx, "erin", "bad"); err == nil {
 		t.Fatal("expected error on userinfo 401")
+	}
+	if _, err := f.Fetch(ctx, "erin", "bad"); err == nil || calls.Load() != before+1 {
+		t.Fatalf("expected cached failure without a second IdP call, calls=%d", calls.Load()-before)
+	}
+}
+
+func TestPictureURL(t *testing.T) {
+	got := PictureURL("https://id.example.test/api/users/{sub}/profile-picture.png", "4f1c/..x")
+	if want := "https://id.example.test/api/users/4f1c%2F..x/profile-picture.png"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if PictureURL("", "u") != "" || PictureURL("https://x/{sub}", "") != "" {
+		t.Fatal("empty template or user should yield no URL")
 	}
 }

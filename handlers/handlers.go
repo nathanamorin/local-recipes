@@ -12,8 +12,15 @@ import (
 
 // Handler holds shared dependencies for all route handlers.
 type Handler struct {
-	db       *gorm.DB
-	profiles *identity.ProfileFetcher
+	db              *gorm.DB
+	profiles        *identity.ProfileFetcher
+	pictureTemplate string
+}
+
+// WithPictureURLTemplate sets a {sub} URL template for the user's
+// profile picture, used when the userinfo lookup doesn't provide one.
+func WithPictureURLTemplate(t string) Option {
+	return func(h *Handler) { h.pictureTemplate = t }
 }
 
 // Option configures optional Handler dependencies.
