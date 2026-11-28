@@ -3,7 +3,7 @@ module github.com/nathanamorin/local-recipes
 go 1.26.1
 
 require (
-	github.com/ardanlabs/conf/v3 v3.1.8
+	github.com/ardanlabs/conf/v3 v3.13.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-jose/go-jose/v4 v4.1.4
