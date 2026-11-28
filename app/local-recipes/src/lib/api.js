@@ -43,6 +43,9 @@ export const api = {
   createRecipe: (recipe) => request('/recipes', { method: 'POST', body: recipe }),
   updateRecipe: (id, recipe) => request(`/recipes/${enc(id)}`, { method: 'PUT', body: recipe }),
   deleteRecipe: (id) => request(`/recipes/${enc(id)}`, { method: 'DELETE' }),
+  listArchivedRecipes: () => request('/recipes?archived=true').then((d) => d.recipes || []),
+  archiveRecipe: (id) => request(`/recipes/${enc(id)}/archive`, { method: 'POST' }),
+  restoreRecipe: (id) => request(`/recipes/${enc(id)}/restore`, { method: 'POST' }),
 
   // 204 (not rated yet) parses to null.
   getRating: (id) => request(`/recipes/${enc(id)}/rating`),

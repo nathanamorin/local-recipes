@@ -11,6 +11,7 @@ const RecipeDetail = lazy(() => import('./pages/RecipeDetail'))
 const RecipeEditor = lazy(() => import('./pages/RecipeEditor'))
 const Pantry = lazy(() => import('./pages/Pantry'))
 const Planner = lazy(() => import('./pages/Planner'))
+const Settings = lazy(() => import('./pages/Settings'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 class ErrorBoundary extends Component {
@@ -44,6 +45,7 @@ export default function App() {
                 <Route path="/recipes/:recipeId/edit" element={<RecipeEditor mode="edit" />} />
                 <Route path="/pantry" element={<Pantry />} />
                 <Route path="/plan" element={<Planner />} />
+                <Route path="/settings" element={<Settings />} />
                 {/* Old paths, kept so existing bookmarks still work. */}
                 <Route path="/ingredients" element={<Navigate to="/pantry" replace />} />
                 <Route path="/schedule" element={<Navigate to="/plan" replace />} />

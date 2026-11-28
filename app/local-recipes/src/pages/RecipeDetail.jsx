@@ -7,7 +7,7 @@ import { getCached, invalidate, setCached, useResource } from '../lib/resource'
 import { displayUnit, formatMinutes, formatQuantity, totalMinutes } from '../lib/format'
 import { stripIngredientsSection } from '../lib/markdown'
 import { Icon } from '../components/Icon'
-import { ConfirmDialog } from '../components/Dialog'
+import { archiveRecipe, restoreRecipe } from '../lib/recipeActions'
 import { useToast } from '../components/Toast'
 import { Chip, ErrorState, RecipeCover, Skeleton, Stars, Stepper } from '../components/ui'
 
@@ -338,8 +338,7 @@ export default function RecipeDetail() {
   const { data: recipe, error, loading, reload } = useResource(key, () => api.getRecipe(recipeId))
   const { data: pantry } = useResource('ingredients', api.listIngredients)
   const [cookMode, setCookMode] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [deleting, setDeleting] = useState(false)
+  const [busy, setBusy] = useState(false)
   const wakeLockSupported = useWakeLock(cookMode)
   const topRef = useRef(null)
 
@@ -360,18 +359,38 @@ export default function RecipeDetail() {
   if (loading) return <DetailSkeleton />
   if (error) return <ErrorState error={error} onRetry={reload} />
 
-  const onDelete = async () => {
-    setDeleting(true)
+  // Archiving is reversible, so it acts immediately with an Undo toast
+  // rather than a confirmation dialog.
+  const onArchive = async () => {
+    setBusy(true)
     try {
-      await api.deleteRecipe(recipe.id)
-      setCached('recipes', (list) => (list || []).filter((r) => r.id !== recipe.id))
-      invalidate('recipes')
-      toast(`Deleted "${recipe.title}"`)
+      await archiveRecipe(recipe.id)
       navigate('/')
+      toast(`Archived "${recipe.title}"`, {
+        duration: 7000,
+        action: {
+          label: 'Undo',
+          onClick: () =>
+            restoreRecipe(recipe.id)
+              .then(() => toast(`Restored "${recipe.title}"`))
+              .catch((e) => toast(e.message, { tone: 'error' })),
+        },
+      })
     } catch (e) {
       toast(e.message, { tone: 'error' })
-      setDeleting(false)
-      setConfirming(false)
+      setBusy(false)
+    }
+  }
+
+  const onRestore = async () => {
+    setBusy(true)
+    try {
+      await restoreRecipe(recipe.id)
+      toast(`Restored "${recipe.title}" to your library`)
+    } catch (e) {
+      toast(e.message, { tone: 'error' })
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -387,6 +406,18 @@ export default function RecipeDetail() {
       <Link to="/" className="back-link">
         <Icon name="arrowLeft" size={16} /> All recipes
       </Link>
+
+      {recipe.archived_at && (
+        <div className="banner" role="status">
+          <Icon name="archive" size={18} />
+          <span className="banner-text">
+            This recipe is archived. It's hidden from your library and meal plans.
+          </span>
+          <button className="btn btn-secondary btn-sm" onClick={onRestore} disabled={busy}>
+            <Icon name="restore" size={16} /> Restore
+          </button>
+        </div>
+      )}
 
       <header className={`recipe-hero ${recipe.image_url ? 'has-image' : ''}`}>
         {recipe.image_url && <RecipeCover recipe={recipe} className="recipe-hero-cover" eager />}
@@ -423,9 +454,11 @@ export default function RecipeDetail() {
                 <Icon name="external" size={18} /> Source
               </a>
             )}
-            <button className="icon-button icon-button-danger" aria-label="Delete recipe" onClick={() => setConfirming(true)}>
-              <Icon name="trash" />
-            </button>
+            {!recipe.archived_at && (
+              <button className="btn btn-ghost" onClick={onArchive} disabled={busy}>
+                <Icon name="archive" size={18} /> Archive
+              </button>
+            )}
           </div>
           {cookMode && (
             <p className="cook-mode-note" role="status">
@@ -451,15 +484,6 @@ export default function RecipeDetail() {
           {!cookMode && <RatingCard recipeId={recipe.id} onRated={refreshAfterRating} />}
         </div>
       </div>
-
-      <ConfirmDialog
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        onConfirm={onDelete}
-        busy={deleting}
-        title="Delete this recipe?"
-        message={`"${recipe.title}" and its ratings will be permanently removed.`}
-      />
     </article>
   )
 }

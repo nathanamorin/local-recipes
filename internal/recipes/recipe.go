@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -139,8 +140,24 @@ func GetRecipe(db *gorm.DB, userID, recipeID string) (*Recipe, error) {
 // ingredient list, for a lighter-weight library view), most recently
 // updated first, each annotated with its rating summary.
 func ListRecipes(db *gorm.DB, userID string) ([]Recipe, error) {
+	return listRecipes(db, userID, false)
+}
+
+// ListArchivedRecipes lists userID's archived recipes, most recently
+// archived first.
+func ListArchivedRecipes(db *gorm.DB, userID string) ([]Recipe, error) {
+	return listRecipes(db, userID, true)
+}
+
+func listRecipes(db *gorm.DB, userID string, archived bool) ([]Recipe, error) {
 	var recipeList []Recipe
-	if err := db.Where("user_id = ?", userID).Order("updated_at desc").Find(&recipeList).Error; err != nil {
+	q := db.Where("user_id = ?", userID)
+	if archived {
+		q = q.Where("archived_at IS NOT NULL").Order("archived_at desc")
+	} else {
+		q = q.Where("archived_at IS NULL").Order("updated_at desc")
+	}
+	if err := q.Find(&recipeList).Error; err != nil {
 		return nil, err
 	}
 	ptrs := make([]*Recipe, len(recipeList))
@@ -241,10 +258,33 @@ func UpdateRecipe(db *gorm.DB, userID, recipeID string, in RecipeInput) (*Recipe
 	return GetRecipe(db, userID, recipeID)
 }
 
-// DeleteRecipe removes a recipe along with its ingredient tags and
-// ratings.
+// SetRecipeArchived archives (archived=true) or restores a recipe. It
+// returns gorm.ErrRecordNotFound if userID has no such recipe.
+func SetRecipeArchived(db *gorm.DB, userID, recipeID string, archived bool) (*Recipe, error) {
+	var archivedAt *time.Time
+	if archived {
+		now := time.Now().UTC()
+		archivedAt = &now
+	}
+	res := db.Model(&Recipe{}).
+		Where("user_id = ? AND id = ?", userID, recipeID).
+		UpdateColumn("archived_at", archivedAt)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return GetRecipe(db, userID, recipeID)
+}
+
+// DeleteRecipe permanently removes a recipe along with its ingredient
+// tags, ratings and any meals scheduled from it.
 func DeleteRecipe(db *gorm.DB, userID, recipeID string) error {
 	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND recipe_id = ?", userID, recipeID).Delete(&ScheduledMeal{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("recipe_id = ?", recipeID).Delete(&RecipeIngredient{}).Error; err != nil {
 			return err
 		}

@@ -18,18 +18,23 @@ type recipeListResponse struct {
 // @Summary      List the current user's recipes
 // @Tags         recipes
 // @Produce      json
+// @Param        archived  query  bool  false  "true lists archived recipes instead"
 // @Success      200  {object}  recipeListResponse
 // @Router       /recipes [get]
 func (h *Handler) ListRecipes(c echo.Context) error {
-	list, err := recipes.ListRecipes(h.db, currentUserID(c))
+	list := recipes.ListRecipes
+	if c.QueryParam("archived") == "true" {
+		list = recipes.ListArchivedRecipes
+	}
+	result, err := list(h.db, currentUserID(c))
 	if err != nil {
 		klog.Errorf("error listing recipes: %s", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "error listing recipes"})
 	}
-	if list == nil {
-		list = []recipes.Recipe{}
+	if result == nil {
+		result = []recipes.Recipe{}
 	}
-	return c.JSON(http.StatusOK, recipeListResponse{Recipes: list})
+	return c.JSON(http.StatusOK, recipeListResponse{Recipes: result})
 }
 
 type recipeRequest struct {
@@ -137,6 +142,40 @@ func (h *Handler) DeleteRecipe(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "error deleting recipe"})
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "success"})
+}
+
+// ArchiveRecipe godoc
+// @Summary      Archive a recipe (hide it; restorable from Settings)
+// @Tags         recipes
+// @Produce      json
+// @Param        recipe_id  path  string  true  "Recipe ID"
+// @Success      200  {object}  recipes.Recipe
+// @Router       /recipes/{recipe_id}/archive [post]
+func (h *Handler) ArchiveRecipe(c echo.Context) error {
+	return h.setArchived(c, true)
+}
+
+// RestoreRecipe godoc
+// @Summary      Restore an archived recipe
+// @Tags         recipes
+// @Produce      json
+// @Param        recipe_id  path  string  true  "Recipe ID"
+// @Success      200  {object}  recipes.Recipe
+// @Router       /recipes/{recipe_id}/restore [post]
+func (h *Handler) RestoreRecipe(c echo.Context) error {
+	return h.setArchived(c, false)
+}
+
+func (h *Handler) setArchived(c echo.Context, archived bool) error {
+	recipe, err := recipes.SetRecipeArchived(h.db, currentUserID(c), c.Param("recipe_id"), archived)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "recipe not found"})
+	}
+	if err != nil {
+		klog.Errorf("error setting recipe archived=%t: %s", archived, err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "error updating recipe"})
+	}
+	return c.JSON(http.StatusOK, recipe)
 }
 
 type ratingRequest struct {

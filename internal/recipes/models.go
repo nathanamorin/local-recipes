@@ -40,6 +40,11 @@ type Recipe struct {
 	ImageURL     string    `json:"image_url"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	// ArchivedAt is set when the user archives (soft-removes) a recipe.
+	// Archived recipes are hidden from the library, the meal planner's
+	// pool and the MCP tools, but keep their ingredients and ratings so
+	// they can be restored from Settings.
+	ArchivedAt *time.Time `json:"archived_at,omitempty" gorm:"index"`
 
 	Ingredients []RecipeIngredient `json:"ingredients,omitempty" gorm:"foreignKey:RecipeID;references:ID"`
 

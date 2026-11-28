@@ -260,7 +260,7 @@ func recipePoolLeastRecentlyCooked(db *gorm.DB, userID string) ([]string, error)
 			SELECT recipe_id, max(date) as max_date FROM scheduled_meals
 			WHERE user_id = ? AND is_leftover = false GROUP BY recipe_id
 		) as last_cooked ON last_cooked.recipe_id = recipes.id`, userID).
-		Where("recipes.user_id = ?", userID).
+		Where("recipes.user_id = ? AND recipes.archived_at IS NULL", userID).
 		Group("recipes.id, last_cooked.max_date").
 		Scan(&rows).Error
 	if err != nil {

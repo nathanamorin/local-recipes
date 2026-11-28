@@ -74,6 +74,12 @@ export function relativeDate(iso) {
   return then.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// Initials for a person: "Jane Doe" -> "JD", "dev-user@x.com" -> "DU".
+export function personInitials(label) {
+  const parts = (label || '?').replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean)
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : (parts[0] || '?').slice(0, 2)).toUpperCase()
+}
+
 // Stable warm hue per title, for recipe placeholders.
 export function hueFor(text) {
   let h = 0

@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { Icon } from './Icon'
 import { api } from '../lib/api'
 import { useResource } from '../lib/resource'
+import { personInitials } from '../lib/format'
 
 const NAV = [
   { to: '/', label: 'Recipes', icon: 'book', end: true },
@@ -10,31 +11,32 @@ const NAV = [
   { to: '/plan', label: 'Meal plan', icon: 'calendar' },
 ]
 
-function initials(label) {
-  const parts = label.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean)
-  return (parts.length > 1 ? parts[0][0] + parts[1][0] : label.slice(0, 2)).toUpperCase()
-}
-
 function UserBadge() {
   const { data: user } = useResource('me', api.getCurrentUser)
   const [pictureFailed, setPictureFailed] = useState(false)
-  if (!user) return <div className="user-badge user-badge-placeholder" aria-hidden="true" />
+  if (!user)
+    return (
+      <NavLink to="/settings" className="user-badge" aria-label="Settings">
+        <span className="user-badge-placeholder" aria-hidden="true" />
+      </NavLink>
+    )
   const label = user.name || user.username || user.email || user.user_id
   const tooltip = [user.name, user.username && `@${user.username}`, user.email].filter(Boolean).join(' · ') || user.user_id
   return (
-    <div className="user-badge" title={tooltip}>
+    <NavLink to="/settings" className="user-badge" title={`${tooltip} · Settings`} aria-label="Settings">
       {user.picture && !pictureFailed ? (
         <img className="avatar" src={user.picture} alt="" referrerPolicy="no-referrer" onError={() => setPictureFailed(true)} />
       ) : (
         <span className="avatar avatar-fallback" aria-hidden="true">
-          {initials(label)}
+          {personInitials(label)}
         </span>
       )}
       <span className="user-badge-text">
         <span className="user-badge-name">{label}</span>
         {user.name && user.email && <span className="user-badge-email">{user.email}</span>}
       </span>
-    </div>
+      <Icon name="settings" size={18} className="user-badge-gear" />
+    </NavLink>
   )
 }
 
