@@ -12,7 +12,7 @@ require (
 	github.com/mark3labs/mcp-go v1.6.0
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/gorm v1.25.12
-	k8s.io/klog/v2 v2.130.1
+	k8s.io/klog/v2 v2.140.0
 )
 
 require (
